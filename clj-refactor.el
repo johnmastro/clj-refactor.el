@@ -418,6 +418,65 @@
   (skip-syntax-forward " >")
   (paredit-convolute-sexp))
 
+;; ------ aligning expressions ----------
+
+(defun cljr--next-expr (&optional arg)
+  (interactive "p")
+  (let ((n (or arg 1)))
+    (paredit-forward (1+ n))
+    (paredit-backward)))
+
+(defun cljr--point-between? (beg end)
+  (let ((point (point)))
+    (and (> point beg)
+         (< point end))))
+
+(defun cljr--pairs-goal-col (beg end)
+  (goto-char (1+ beg))
+  (let ((cols nil))
+    (while (cljr--point-between? beg end)
+      (cljr--next-expr)
+      (push (current-column) cols)
+      (cljr--next-expr))
+    (-reduce-from #'max 0 cols)))
+
+(defun cljr--bounds-of-pairs ()
+  (cond
+   ((looking-at "{\\|\\[") (bounds-of-thing-at-point 'sexp))
+   ((looking-back "}\\|]") (progn (paredit-backward)
+                                  (bounds-of-thing-at-point 'sexp)))
+   (t (error "Can't identify bounds of expression"))))
+
+(defvar cljr--binding-form-regexp
+  "(\\(let\\|binding\\|with-redefs\\|with-redefs-fn\\)[\n\r\t ]+")
+
+(defun cljr--find-start-of-pairs ()
+  (while (not (or (looking-at "{")
+                  (and (looking-at "\\[")
+                       (looking-back cljr--binding-form-regexp))))
+    (paredit-backward-up)))
+
+;;;###autoload
+(defun cljr-align-pairs (&optional arg)
+  (interactive "P")
+  (when arg
+    (cljr--find-start-of-pairs))
+  (paredit-reindent-defun)
+  (let* ((bounds (cljr--bounds-of-pairs))
+         (beg    (car bounds))
+         (end    (cdr bounds))
+         (goal   (cljr--pairs-goal-col beg end)))
+    (goto-char (1+ beg))
+    (while (cljr--point-between? beg end)
+      (cljr--next-expr)
+      (let ((start (current-column)))
+        (--dotimes (- goal start)
+          (insert " ")))
+      (cljr--next-expr))
+    (goto-char beg)
+    (paredit-reindent-defun)
+    (paredit-forward)))
+
 ;; ------ minor mode -----------
 
 ;;;###autoload
